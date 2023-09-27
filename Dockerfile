@@ -79,6 +79,7 @@ RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm && \
     --products ${MATLAB_PRODUCT_LIST} && \
     rm -f mpm /tmp/mathworks_root.log && \
     ln -s /opt/matlab/bin/matlab /usr/local/bin/matlab
+
 #####################################################################################
 ## install needed apps
 RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install --no-install-recommends -y \
@@ -117,8 +118,8 @@ COPY g9/anal/* /opt/guisdap/anal/
 # scripts to read in hdf5 into matlab and python from Lisa
 RUN mkdir /opt/guisdap/Etools
 COPY /pkgs/Etools/* /opt/guisdap/Etools
-############################################################################
 
+############################################################################
 ## Julia
 ENV JULIA_VERSION=1.9.3
 RUN mkdir /opt/julia-${JULIA_VERSION} && \
@@ -128,10 +129,6 @@ RUN mkdir /opt/julia-${JULIA_VERSION} && \
     rm /tmp/julia-${JULIA_VERSION}-linux-x86_64.tar.gz
 RUN ln -fs /opt/julia-*/bin/julia /usr/local/bin/julia
 
-#####################################################################################
-# Setup for home folder when starting up container
-COPY ./startup.sh /usr/local/bin/start-notebook.d
-COPY /home/jovyan/* /home/jovyan_new
 #####################################################################################
 # Switch back to notebook user
 USER $NB_USER
@@ -180,3 +177,12 @@ ENV MATLABPATH="/home/$NB_USER/gup/mygup:/opt/guisdap/anal:/opt/guisdap/init:/ho
 
 ##RUN echo "$NB_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/$NB_USER \
 ##    && chmod 0440 /etc/sudoers.d/$NB_USER
+
+
+# To setup folders for guisdap and backup container homefolder for comparisement on run
+# USER root
+COPY ./startup.sh /usr/local/bin/start-notebook.d
+# RUN cp -r /home/jovyan /tmp/jovyan && chmod 777 /tmp/jovyan
+
+# USER $NB_USER
+#####################################################################################
