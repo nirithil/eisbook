@@ -152,9 +152,8 @@ RUN python -m pip install jupyter-matlab-proxy
 RUN python -m pip install octave_kernel
 RUN python -m pip install matplotlib numpy pandas
 RUN python -m pip install madrigalWeb
-RUN python -m pip install jupyterlab \
- jupyterlab_widgets "ipywidgets>=7,<8"
-RUN python -m pip install plotly dash
+RUN python -m pip install jupyterlab_widgets "ipywidgets>=7,<8"
+RUN python -m pip install plotly
 
 # what is this variable needed for?
 ARG OCTAVE_EXECUTABLE=/usr/bin/octave 
