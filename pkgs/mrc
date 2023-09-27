@@ -1,0 +1,11 @@
+opengl software
+opengl save software
+s=settings;
+w=warning('off','MATLAB:structOnObject');
+fn=fieldnames(struct(s.matlab.ddux));
+warning(w);
+fn=fn(contains(fn,'ddux'));
+for n=1:numel(fn)
+    s.matlab.ddux.(fn{n}).chosen.PersonalValue=0;
+end
+clear s w fn n
