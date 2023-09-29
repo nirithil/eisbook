@@ -103,7 +103,8 @@ RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
 # COPY pkgs/*.m /opt/matlab/toolbox/local/ (this shouldn't be necessary anymore? not sure about the following lines)
 COPY pkgs/mrc /tmp
 RUN cd /tmp && cat mrc >> /opt/matlab/toolbox/local/matlabrc.m && rm mrc
-COPY pkgs/RTG*.m /usr/share/octave/site/m/
+# COPY pkgs/RTG*.m /usr/share/octave/site/m/ (namiesto tohto pridaj /opt/remtg/lib to octave path)
+RUN cd /usr/share/octave/site/m/startup && echo 'addpath("/opt/remtg/lib")' >> octaverc
 
 ############################################################################
 # Update to newer guisdap scripts that do not require compiling 
