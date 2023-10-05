@@ -2,11 +2,11 @@
 # Select base Jupyter image (from the jupyter docker-stacks project)
 FROM jupyter/base-notebook:latest as eisbase
 
-# LABEL maintainer="EISCAT Scientific Association"
-
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 USER root
+# COPY pkgs/sources.list /etc/apt/
+
 ENV DEBIAN_FRONTEND="noninteractive" TZ="Etc/UTC"
 
 # Install all OS dependencies for fully functional Server
@@ -14,7 +14,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get update -y && \
     apt-get install -y --no-install-recommends \
     # Common useful utilities
-    curl git telnet wget nano tzdata unzip vim scite \
+    curl telnet git wget nano tzdata unzip vim scite \
     ca-certificates \
     # git-over-ssh
     openssh-client \
@@ -30,8 +30,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     bzip2 lbzip2 ffmpeg fonts-freefont-otf \
     gzip ghostscript libimage-exiftool-perl qpdfview \
     gcc libc6-dev libfftw3-3 libgfortran5 \
-    dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg \
-    xubuntu-icon-theme xvfb \
+    dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg xvfb \
     firefox xubuntu-icon-theme xscreensaver \
     websockify \
         && apt-get remove --yes gnome-screensaver \
@@ -112,17 +111,58 @@ RUN mamba install --yes \
     fix-permissions "/home/${NB_USER}"
 
 #######################################################################################
+FROM eisr as eisnovnc
+
+USER root
+
+# Install tigervnc to /usr/local
+# RUN curl -sSfL 'https://sourceforge.net/projects/tigervnc/files/stable/1.10.1/tigervnc-1.10.1.x86_64.tar.gz/download' \
+RUN curl -sSfL 'https://sourceforge.net/projects/tigervnc/files/stable/1.13.1/tigervnc-1.13.1.x86_64.tar.gz/download' \
+    | tar -zxf - -C /usr/local --strip=2
+
+# noVNC provides VNC over browser capability
+# Set default install location for noVNC
+ARG NOVNC_PATH=/opt/noVNC
+
+# Get noVNC
+RUN mkdir -p ${NOVNC_PATH} \
+    # && curl -sSfL 'https://github.com/novnc/noVNC/archive/v1.2.0.tar.gz' \
+    && curl -sSfL 'https://github.com/novnc/noVNC/archive/refs/tags/v1.4.0.tar.gz' \
+    | tar -zxf - -C ${NOVNC_PATH} --strip=1 \
+    && chown -R ${NB_USER}:users ${NOVNC_PATH}
+
+# JOVYAN is the default user in jupyter/base-notebook.
+# JOVYAN is being set to be passwordless. 
+# This allows users to easily wake the desktop when it goes to sleep.
+RUN passwd $NB_USER -d
+
+# Change user to jovyan from root as we do not want any changes to be made as root in the container
+USER $NB_USER
+
+# Get websockify
+RUN conda install -y websockify=0.11.0
+
+# Set environment variable for python package jupyter-matlab-vnc-proxy
+ENV NOVNC_PATH=${NOVNC_PATH}
+
+# Fixes occasional failure to start VNC desktop, which requires a reloading of the webpage to fix.
+RUN touch ${HOME}/.Xauthority
+
+WORKDIR /home/${NB_USER}
+# Install integration
+RUN python -m pip install jupyter-remote-desktop-proxy
+
+#######################################################################################
+FROM eisnovnc as eismatlab
 # Specify release of MATLAB to build. (use lowercase, default is r2023a) Taken from mathworks-ref-arch
 # /matlab-integration-for-jupyter matlab/matlabVNC and adjusted
-ARG MATLAB_RELEASE=r2023a
+ENV MATLAB_RELEASE=r2023a
 
 # Specify the list of products to install into MATLAB, 
 ARG MATLAB_PRODUCT_LIST="MATLAB"
 
 # Default DDUX information
 ARG MW_CONTEXT_TAGS=MATLAB_PROXY:JUPYTER:MPM:V1
-
-FROM eisr as eismatlab
 
 USER root
 
@@ -132,28 +172,44 @@ USER root
 # For MATLAB Integration for Jupyter (VNC): xvfb dbus-x11 firefox xfce4 xfce4-panel xfce4-session xfce4-settings xorg xubuntu-icon-theme curl xscreensaver
 
 # List of MATLAB Dependencies for Ubuntu 20.04 and specified MATLAB_RELEASE
-ARG MATLAB_DEPS_REQUIREMENTS_FILE="https://raw.githubusercontent.com/mathworks-ref-arch/container-images/main/matlab-deps/${MATLAB_RELEASE}/ubuntu20.04/base-dependencies.txt"
+# ARG MATLAB_DEPS_REQUIREMENTS_FILE="https://raw.githubusercontent.com/mathworks-ref-arch/container-images/main/matlab-deps/${MATLAB_RELEASE}/ubuntu20.04/base-dependencies.txt"
+ARG MATLAB_DEPS_REQUIREMENTS="ca-certificates libasound2 libc6 libcairo-gobject2 libcairo2 libcap2 \
+ libcrypt1 libcups2 libdrm2 libgbm1 libgdk-pixbuf-2.0-0 libgl1 libglib2.0-0 libgstreamer-plugins-base1.0-0 \
+ libgstreamer1.0-0 libgtk-3-0 libice6 libnspr4 libnss3 libodbc2 libodbcinst2 libpam0g libpango-1.0-0 \
+ libpangocairo-1.0-0 libpangoft2-1.0-0 libsndfile1 libuuid1 libwayland-client0 libxcomposite1 libxcursor1 \
+ libxdamage1 libxfixes3 libxft2 libxinerama1 libxrandr2 libxt6 libxtst6 libxxf86vm1 locales locales-all \
+ make net-tools procps sudo unzip zlib1g"
 ARG MATLAB_DEPS_REQUIREMENTS_FILE_NAME="matlab-deps-${MATLAB_RELEASE}-base-dependencies.txt"
 
 # Install dependencies
-RUN wget ${MATLAB_DEPS_REQUIREMENTS_FILE} -O ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} \
-    && export DEBIAN_FRONTEND=noninteractive && apt-get update \
+# RUN wget ${MATLAB_DEPS_REQUIREMENTS_FILE} -O ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} \
+#     && export DEBIAN_FRONTEND=noninteractive && apt-get update \
+#     && xargs -a ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} -r apt-get install --no-install-recommends -y \
+#     dbus-x11 \
+#     firefox \
+#     xfce4 \
+#     xfce4-panel \
+#     xfce4-session \
+#     xfce4-settings \
+#     xorg \
+#     xubuntu-icon-theme \
+#     curl \
+#     xscreensaver \
+#     wget \
+#     unzip \
+#     ca-certificates \
+#     xvfb \
+#     && apt-get remove -y gnome-screensaver  \
+#     && apt-get clean \
+#     && apt-get -y autoremove \
+#     && rm -rf /var/lib/apt/lists/* ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME}
+
+RUN echo ${MATLAB_DEPS_REQUIREMENTS} > ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} \
+    && apt-get update \
+    && export isJammy=`cat /etc/lsb-release | grep DISTRIB_RELEASE=22.04 | wc -l` \
+    && export needsPy39=`cat ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} | grep libpython3.9 | wc -l` \
+    && if [[ isJammy -eq 1 && needsPy39 -eq 1 ]] ; then apt-get install -y software-properties-common && add-apt-repository ppa:deadsnakes/ppa ; fi \
     && xargs -a ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} -r apt-get install --no-install-recommends -y \
-    dbus-x11 \
-    firefox \
-    xfce4 \
-    xfce4-panel \
-    xfce4-session \
-    xfce4-settings \
-    xorg \
-    xubuntu-icon-theme \
-    curl \
-    xscreensaver \
-    wget \
-    unzip \
-    ca-certificates \
-    xvfb \
-    && apt-get remove -y gnome-screensaver  \
     && apt-get clean \
     && apt-get -y autoremove \
     && rm -rf /var/lib/apt/lists/* ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME}
@@ -168,6 +224,9 @@ RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm && \
     rm -f mpm /tmp/mathworks_root.log && \
     ln -s /opt/matlab/bin/matlab /usr/local/bin/matlab
 
+# Note on glibc patch - See https://github.com/mathworks/build-glibc-bz-19329-patch
+# Installation is skipped on Ubuntu 22.04 (Jammy) as it already contains the glibc fix
+
 # Install patched glibc - See https://github.com/mathworks/build-glibc-bz-19329-patch
 # WORKDIR /packages
 # RUN export DEBIAN_FRONTEND=noninteractive && \
@@ -180,51 +239,21 @@ RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm && \
 #         && rm -rf /packages
 # WORKDIR /
 
-# Install tigervnc to /usr/local
-RUN curl -sSfL 'https://sourceforge.net/projects/tigervnc/files/stable/1.13.1/tigervnc-1.13.1.x86_64.tar.gz/download' \
-    | tar -zxf - -C /usr/local --strip=2
-
-# noVNC provides VNC over browser capability
-# Set default install location for noVNC
-ARG NOVNC_PATH=/opt/noVNC
-
-# Get noVNC
-RUN mkdir -p ${NOVNC_PATH} \
-    && curl -sSfL 'https://github.com/novnc/noVNC/archive/refs/tags/v1.4.0.tar.gz' \
-    | tar -zxf - -C ${NOVNC_PATH} --strip=1 \
-    && chown -R ${NB_USER}:users ${NOVNC_PATH}
-
-# JOVYAN is the default user in jupyter/base-notebook.
-# JOVYAN is being set to be passwordless. 
-# This allows users to easily wake the desktop when it goes to sleep.
-RUN passwd $NB_USER -d
-
-# Optional: Install MATLAB Engine for Python, if possible. 
-# Note: Failure to install does not stop the build.
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update \
-    && apt-get install --no-install-recommends -y  python3-distutils \
-    && apt-get clean \
-    && apt-get -y autoremove \
-    && rm -rf /var/lib/apt/lists/* \
-    && cd /opt/matlab/extern/engines/python \
-    && python setup.py install || true
+# # Optional: Install MATLAB Engine for Python, if possible. 
+# # Note: Failure to install does not stop the build.
+# RUN export DEBIAN_FRONTEND=noninteractive && apt-get update \
+#     && apt-get install --no-install-recommends -y  python3-distutils \
+#     && apt-get clean \
+#     && apt-get -y autoremove \
+#     && rm -rf /var/lib/apt/lists/* \
+#     && cd /opt/matlab/extern/engines/python \
+#     && python setup.py install || true
 
 # Change user to jovyan from root as we do not want any changes to be made as root in the container
 USER $NB_USER
-
-# Get websockify
-RUN conda install -y -q websockify=0.11.0
-
-# Set environment variable for python package jupyter-matlab-vnc-proxy
-ENV NOVNC_PATH=${NOVNC_PATH}
-
-# Fixes occasional failure to start VNC desktop, which requires a reloading of the webpage to fix.
-RUN touch ${HOME}/.Xauthority
-
 WORKDIR /home/${NB_USER}
 
 # Install integration
-RUN python -m pip install jupyter-remote-desktop-proxy
 RUN python -m pip install jupyter-matlab-proxy
 
 # Make JupyterLab the default environment
@@ -237,24 +266,24 @@ FROM eismatlab as eisbook
 
 USER root
 
-## Install pithia tools online
-# RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
-#     unzip pkg.zip && \
-#     for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
-#     rm -rf /tmp/pkg*
-
-# Install pithia tools from local storage
-COPY ./pkg/* /tmp/pkg/
-RUN for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
+# Install pithia tools online
+RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
+    unzip pkg.zip && \
+    for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
     rm -rf /tmp/pkg*
 
-# to test updated scripts in anal
-COPY g9/anal/* /opt/guisdap/anal/
-# COPY g9/exps/* /opt/guisdap/exps/
-# COPY g9/init/* /opt/guisdap/init/
+# # Install pithia tools from local storage
+# COPY ./pkg/* /tmp/pkg/
+# RUN for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
+#     rm -rf /tmp/pkg*
 
-# to test changes in remtg
-COPY ./remtg/lib/* /opt/remtg/lib/
+# # to test updated scripts in anal
+# COPY g9/anal/* /opt/guisdap/anal/
+# # COPY g9/exps/* /opt/guisdap/exps/
+# # COPY g9/init/* /opt/guisdap/init/
+
+# # to test changes in remtg
+# COPY ./remtg/lib/* /opt/remtg/lib/
 
 # scripts to read in hdf5 into matlab and python from Lisa
 RUN mkdir /opt/guisdap/user_scripts
@@ -269,21 +298,25 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         && apt-get -y autoremove \
         && rm -rf /var/lib/apt/lists/*
 
-# add remtg to octave path
+# add remtg to octave path and setup proper graphics_toolkit based on app
 COPY pkgs/addto_octaverc /usr/share/octave/site/m/startup
 RUN cd /usr/share/octave/site/m/startup && cat addto_octaverc >> octaverc \
     && rm addto_octaverc
+
+# turn off automatick update check in matlab
+COPY pkgs/addto_matlabrc /opt/matlab/toolbox/local
+RUN cd /opt/matlab/toolbox/local && cat addto_matlabrc >> matlabrc.m \
+    && rm addto_matlabrc
+
+# To setup folders for guisdap and backup container homefolder for comparisement on run
+COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d/
 
 # Switch back to notebook user
 USER $NB_USER
 WORKDIR /home/${NB_USER}
 
-# RUN mamba install -c conda-forge --yes xeus-octave
-
-
-# Install integration
 RUN python -m pip install -U pip
-# RUN python -m pip install aqtinstall
+# Install integration
 RUN python -m pip install octave_kernel
 RUN python -m pip install matplotlib numpy pandas
 RUN python -m pip install madrigalWeb
@@ -299,11 +332,8 @@ ARG OCTAVE_EXECUTABLE=/usr/bin/octave
 ENV EISCATSITE="Hub"
 #####################################################################################
 # path for guisdap to be added at start to MATLAB, this causes guisdap automatically load together with the matlab environment... why?
-ENV MATLABPATH="/home/$NB_USER/gup/mygup:/opt/guisdap/anal:/opt/guisdap/init:/home/$NB_USER/Etools/:/opt/remtg/lib"
+ENV MATLABPATH="/home/$NB_USER/gup/mygup:/opt/guisdap/anal:/opt/guisdap/init:/home/$NB_USER/user_scripts/:/opt/remtg/lib"
 
 #####################################################################################
 ## other attempts and experiments
 
-# To setup folders for guisdap and backup container homefolder for comparisement on run
-# USER root
-COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d

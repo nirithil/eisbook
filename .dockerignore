@@ -3,3 +3,7 @@ README.md
 exclude/*
 notes.txt
 g9/.git/*
+remtg/*
+g9/*
+notes.txt
+.gitignore

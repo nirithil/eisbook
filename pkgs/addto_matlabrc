@@ -1,0 +1,2 @@
+% turn off the auto update check
+com.mathworks.services.Prefs.setBooleanPref('com.mathworks.webintegration.checkforupdates.CheckForUpdates.enabled',0) 
