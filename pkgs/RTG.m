@@ -1,1 +1,0 @@
-addpath('/opt/remtg/lib')

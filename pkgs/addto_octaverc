@@ -1,0 +1,7 @@
+addpath("/opt/remtg/lib")
+if getenv("DISPLAY")
+  graphics_toolkit ("qt")
+else
+  setenv("GNUTERM", "qt")
+  graphics_toolkit ("gnuplot")
+endif

@@ -1,77 +1,165 @@
+######################################################################################
+# Select base Jupyter image (from the jupyter docker-stacks project)
+FROM jupyter/base-notebook:latest as eisbase
 
-#####################################################################################
-## Specify release of MATLAB to build. (use lowercase, default is r2021b)
-ARG MATLAB_RELEASE=r2023a
-## older MATLAB version for Daniel (because of license)
-# ARG MATLAB_RELEASE=r2020b 
-## Specify the list of products to install into MATLAB, 
-ARG MATLAB_PRODUCT_LIST="MATLAB"
-## Optional Network License Server information
-ARG LICENSE_SERVER
-## If LICENSE_SERVER is provided then SHOULD_USE_LICENSE_SERVER will be set to "_use_lm"
-ARG SHOULD_USE_LICENSE_SERVER=${LICENSE_SERVER:+"_with_lm"}
-##ARG SHOULD_USE_LICENSE_SERVER=${LICENSE_SERVER:+"_use_lm"}
-## Default DDUX information
-ARG MW_CONTEXT_TAGS=MATLAB_PROXY:JUPYTER:MPM:V1
-#####################################################################################
-## Base Jupyter image without LICENSE_SERVER
-#FROM jupyter/base-notebook AS base_jupyter_image
-FROM jupyter/base-notebook AS base_jupyter_image
+# LABEL maintainer="EISCAT Scientific Association"
 
-## Base Jupyter image with LICENSE_SERVER
-FROM jupyter/base-notebook AS base_jupyter_image_with_lm
-ARG LICENSE_SERVER
-# If license server information is available, then use it to set environment variable
-#ENV MLM_LICENSE_FILE=${LICENSE_SERVER}
-#ENV MLM_LICENSE_FILE=27000@hqserv
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Select base Jupyter image based on whether LICENSE_SERVER is provided
-FROM base_jupyter_image${SHOULD_USE_LICENSE_SERVER}
-ARG MW_CONTEXT_TAGS
-ARG MATLAB_RELEASE
-ARG MATLAB_PRODUCT_LIST
-
-#####################################################################################
-## Switch to root user
 USER root
 ENV DEBIAN_FRONTEND="noninteractive" TZ="Etc/UTC"
 
-#####################################################################################
+# Install all OS dependencies for fully functional Server
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    # Common useful utilities
+    curl git telnet wget nano tzdata unzip vim scite \
+    ca-certificates \
+    # git-over-ssh
+    openssh-client \
+    # less is needed to run help in R
+    # see: https://github.com/jupyter/docker-stacks/issues/1588
+    less \
+    # nbconvert dependencies
+    # https://nbconvert.readthedocs.io/en/latest/install.html#installing-tex
+    texlive-xetex texlive-fonts-recommended texlive-plain-generic \
+    # Enable clipboard on Linux host systems
+    xclip \
+    # dependencies needed for guisdap and MATLAB
+    bzip2 lbzip2 ffmpeg fonts-freefont-otf \
+    gzip ghostscript libimage-exiftool-perl qpdfview \
+    gcc libc6-dev libfftw3-3 libgfortran5 \
+    dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg \
+    xubuntu-icon-theme xvfb \
+    firefox xubuntu-icon-theme xscreensaver \
+    websockify \
+        && apt-get remove --yes gnome-screensaver \
+        && apt-get clean \
+        && apt-get -y autoremove \
+        && rm -rf /var/lib/apt/lists/*
+
+# Switch back to jovyan to avoid accidental container runs as root
+USER ${NB_UID}
+
+# # Add R mimetype option to specify how the plot returns from R to the browser
+COPY --chown=${NB_UID}:${NB_GID} /pkgs/Rprofile.site /opt/conda/lib/R/etc/
+
+# Add setup scripts that may be used by downstream images or inherited images 
+COPY pkgs/setup-scripts/ /opt/setup-scripts/
+######################################################################################
+# install julia # adjusted from jupyter docker-stack julia-notebook scripts r
+FROM eisbase as eisjulia
+
+USER root
+
+# Julia dependencies
+# install Julia packages in /opt/julia instead of ${HOME}
+ENV JULIA_DEPOT_PATH=/opt/julia \
+    JULIA_PKGDIR=/opt/julia
+
+# Setup Julia
+RUN /opt/setup-scripts/setup-julia.bash
+
+USER ${NB_UID}
+
+# Setup IJulia kernel & other packages
+RUN /opt/setup-scripts/setup-julia-packages.bash
+######################################################################################
+# install R # taken from jupyter-docker stacks r-notebook
+FROM eisjulia as eisr
+
+USER root
+
+# R pre-requisites
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    fonts-dejavu \
+    unixodbc \
+    unixodbc-dev \
+    r-cran-rodbc \
+    gfortran \
+    gcc && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# R packages including IRKernel which gets installed globally.
+# r-e1071: dependency of the caret R package
+RUN mamba install --yes \
+    'r-base' \
+    'r-caret' \
+    'r-crayon' \
+    'r-devtools' \
+    'r-e1071' \
+    'r-forecast' \
+    'r-hexbin' \
+    'r-htmltools' \
+    'r-htmlwidgets' \
+    'r-irkernel' \
+    'r-nycflights13' \
+    'r-randomforest' \
+    'r-rcurl' \
+    'r-rmarkdown' \
+    'r-rodbc' \
+    'r-rsqlite' \
+    'r-shiny' \
+    'r-tidymodels' \
+    'r-tidyverse' \
+    'unixodbc' && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
+#######################################################################################
+# Specify release of MATLAB to build. (use lowercase, default is r2023a) Taken from mathworks-ref-arch
+# /matlab-integration-for-jupyter matlab/matlabVNC and adjusted
+ARG MATLAB_RELEASE=r2023a
+
+# Specify the list of products to install into MATLAB, 
+ARG MATLAB_PRODUCT_LIST="MATLAB"
+
+# Default DDUX information
+ARG MW_CONTEXT_TAGS=MATLAB_PROXY:JUPYTER:MPM:V1
+
+FROM eisr as eismatlab
+
+USER root
+
 ## Installing Dependencies for Ubuntu 20.04
 # For MATLAB : Get base-dependencies.txt from matlab-deps repository on GitHub
 # For mpm : wget, unzip, ca-certificates
-# For MATLAB Integration for Jupyter : xvfb
+# For MATLAB Integration for Jupyter (VNC): xvfb dbus-x11 firefox xfce4 xfce4-panel xfce4-session xfce4-settings xorg xubuntu-icon-theme curl xscreensaver
 
-## List of MATLAB Dependencies for Ubuntu 20.04 and specified MATLAB_RELEASE
+# List of MATLAB Dependencies for Ubuntu 20.04 and specified MATLAB_RELEASE
 ARG MATLAB_DEPS_REQUIREMENTS_FILE="https://raw.githubusercontent.com/mathworks-ref-arch/container-images/main/matlab-deps/${MATLAB_RELEASE}/ubuntu20.04/base-dependencies.txt"
 ARG MATLAB_DEPS_REQUIREMENTS_FILE_NAME="matlab-deps-${MATLAB_RELEASE}-base-dependencies.txt"
 
-## Install dependencies
-## MATLAB versions older than 22b need libpython3.9 which is only present in the deadsnakes PPA on ubuntu:22.04
+# Install dependencies
 RUN wget ${MATLAB_DEPS_REQUIREMENTS_FILE} -O ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} \
-    && apt-get update \
-    && export isJammy=`cat /etc/lsb-release | grep DISTRIB_RELEASE=22.04 | wc -l` \
-    && export needsPy39=`cat ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} | grep libpython3.9 | wc -l` \
-    && if [[ isJammy -eq 1 && needsPy39 -eq 1 ]] ; then apt-get install -y software-properties-common && add-apt-repository ppa:deadsnakes/ppa ; fi \
+    && export DEBIAN_FRONTEND=noninteractive && apt-get update \
     && xargs -a ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} -r apt-get install --no-install-recommends -y \
+    dbus-x11 \
+    firefox \
+    xfce4 \
+    xfce4-panel \
+    xfce4-session \
+    xfce4-settings \
+    xorg \
+    xubuntu-icon-theme \
+    curl \
+    xscreensaver \
+    wget \
     unzip \
     ca-certificates \
     xvfb \
+    && apt-get remove -y gnome-screensaver  \
     && apt-get clean \
     && apt-get -y autoremove \
     && rm -rf /var/lib/apt/lists/* ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME}
 
-## Installing MATLAB Engine for Python
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y  python3-distutils \
-    && apt-get clean \
-    && apt-get -y autoremove \
-    && rm -rf /var/lib/apt/lists/* \
-    && cd /opt/matlab/extern/engines/python \
-    && python setup.py install || true
-
-## Run mpm to install MATLAB in the target location and delete the mpm installation afterwards
-RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm && \ 
+# Run mpm to install MATLAB in the target location and delete the mpm installation afterwards
+RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm && \
     chmod +x mpm && \
     ./mpm install \
     --release=${MATLAB_RELEASE} \
@@ -80,76 +168,122 @@ RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm && \
     rm -f mpm /tmp/mathworks_root.log && \
     ln -s /opt/matlab/bin/matlab /usr/local/bin/matlab
 
-#####################################################################################
-## install needed apps
-RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install --no-install-recommends -y \
- nano scite vim wget unzip openssh-client git telnet curl unzip \
- bzip2 lbzip2 octave ffmpeg gnuplot-qt fonts-freefont-otf \
- gzip ghostscript libimage-exiftool-perl qpdfview \
- gcc libc6-dev libfftw3-3 libgfortran5 \
- dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg xubuntu-icon-theme \
- websockify \
+# Install patched glibc - See https://github.com/mathworks/build-glibc-bz-19329-patch
+# WORKDIR /packages
+# RUN export DEBIAN_FRONTEND=noninteractive && \
+#     apt-get update && apt-get clean && apt-get -y autoremove && \
+#     wget -q https://github.com/mathworks/build-glibc-bz-19329-patch/releases/download/ubuntu-focal/all-packages.tar.gz && \
+#     tar -x -f all-packages.tar.gz \
+#     --exclude glibc-*.deb \
+#     --exclude libc6-dbg*.deb \
+#         && apt-get install -y --no-install-recommends --allow-downgrades ./*.deb \
+#         && rm -rf /packages
+# WORKDIR /
+
+# Install tigervnc to /usr/local
+RUN curl -sSfL 'https://sourceforge.net/projects/tigervnc/files/stable/1.13.1/tigervnc-1.13.1.x86_64.tar.gz/download' \
+    | tar -zxf - -C /usr/local --strip=2
+
+# noVNC provides VNC over browser capability
+# Set default install location for noVNC
+ARG NOVNC_PATH=/opt/noVNC
+
+# Get noVNC
+RUN mkdir -p ${NOVNC_PATH} \
+    && curl -sSfL 'https://github.com/novnc/noVNC/archive/refs/tags/v1.4.0.tar.gz' \
+    | tar -zxf - -C ${NOVNC_PATH} --strip=1 \
+    && chown -R ${NB_USER}:users ${NOVNC_PATH}
+
+# JOVYAN is the default user in jupyter/base-notebook.
+# JOVYAN is being set to be passwordless. 
+# This allows users to easily wake the desktop when it goes to sleep.
+RUN passwd $NB_USER -d
+
+# Optional: Install MATLAB Engine for Python, if possible. 
+# Note: Failure to install does not stop the build.
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update \
+    && apt-get install --no-install-recommends -y  python3-distutils \
     && apt-get clean \
     && apt-get -y autoremove \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && cd /opt/matlab/extern/engines/python \
+    && python setup.py install || true
 
-#RUN cd /opt/matlab/bin/glnxa64 && rm -f libtiff.so.5 libcurl.so.4
-#####################################################################################
-## Install pithia tools
-RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
-    unzip pkg.zip && \
-    for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
-    rm -rf /tmp/pkg*
-# COPY pkgs/*.m /opt/matlab/toolbox/local/ (this shouldn't be necessary anymore? not sure about the following lines)
-COPY pkgs/mrc /tmp
-RUN cd /tmp && cat mrc >> /opt/matlab/toolbox/local/matlabrc.m && rm mrc
-# COPY pkgs/RTG*.m /usr/share/octave/site/m/ (namiesto tohto pridaj /opt/remtg/lib to octave path)
-RUN cd /usr/share/octave/site/m/startup && echo 'addpath("/opt/remtg/lib")' >> octaverc
-
-############################################################################
-# Update to newer guisdap scripts that do not require compiling 
-# What else doesn't require compiling? this should be redone by nextcloud storage like the debian packages
-# in the g9 folder there's a git sparse-checkout repository only for 
-# 3 folders git pull master origin before running docker build
-
-COPY g9/anal/* /opt/guisdap/anal/
-# COPY g9/exps/* /opt/guisdap/exps/
-# COPY g9/init/* /opt/guisdap/init/
-
-# scripts to read in hdf5 into matlab and python from Lisa
-RUN mkdir /opt/guisdap/Etools
-COPY /pkgs/Etools/* /opt/guisdap/Etools
-
-############################################################################
-## Julia
-ENV JULIA_VERSION=1.9.3
-RUN mkdir /opt/julia-${JULIA_VERSION} && \
-    cd /tmp && \
-    wget -q https://julialang-s3.julialang.org/bin/linux/x64/`echo ${JULIA_VERSION} | cut -d. -f 1,2`/julia-${JULIA_VERSION}-linux-x86_64.tar.gz && \
-    tar xzf julia-${JULIA_VERSION}-linux-x86_64.tar.gz -C /opt/julia-${JULIA_VERSION} --strip-components=1 && \
-    rm /tmp/julia-${JULIA_VERSION}-linux-x86_64.tar.gz
-RUN ln -fs /opt/julia-*/bin/julia /usr/local/bin/julia
-
-#####################################################################################
-# Switch back to notebook user
+# Change user to jovyan from root as we do not want any changes to be made as root in the container
 USER $NB_USER
-WORKDIR /home/${NB_USER}
 
-## Add packages and precompile
-RUN julia -e 'import Pkg; Pkg.update()' && \
-    julia -e 'import Pkg; Pkg.add("Plots"); using Plots' && \
-    julia -e 'import Pkg; Pkg.add("Distributions"); using Distributions' && \
-    julia -e 'import Pkg; Pkg.add("Optim"); using Optim' && \  
-    julia -e 'import Pkg; Pkg.add("FFTW"); using FFTW' && \  
-    julia -e 'import Pkg; Pkg.add("DSP"); using DSP' && \  
-    julia -e 'import Pkg; Pkg.add("IJulia"); using IJulia' && \
-    julia -e 'import Pkg; Pkg.build("IJulia"); using IJulia' && \
-    # julia -e 'import Pkg; Pkg.add("StatsPlots"); using StatsPlots' && \  
-    fix-permissions /home/$NB_USER
+# Get websockify
+RUN conda install -y -q websockify=0.11.0
+
+# Set environment variable for python package jupyter-matlab-vnc-proxy
+ENV NOVNC_PATH=${NOVNC_PATH}
+
+# Fixes occasional failure to start VNC desktop, which requires a reloading of the webpage to fix.
+RUN touch ${HOME}/.Xauthority
+
+WORKDIR /home/${NB_USER}
 
 # Install integration
 RUN python -m pip install jupyter-remote-desktop-proxy
 RUN python -m pip install jupyter-matlab-proxy
+
+# Make JupyterLab the default environment
+ENV JUPYTER_ENABLE_LAB="yes"
+
+ENV MW_CONTEXT_TAGS=${MW_CONTEXT_TAGS}
+#######################################################################################
+## Install octave guisdap remtg and other EISCAT things
+FROM eismatlab as eisbook
+
+USER root
+
+## Install pithia tools online
+# RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
+#     unzip pkg.zip && \
+#     for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
+#     rm -rf /tmp/pkg*
+
+# Install pithia tools from local storage
+COPY ./pkg/* /tmp/pkg/
+RUN for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
+    rm -rf /tmp/pkg*
+
+# to test updated scripts in anal
+COPY g9/anal/* /opt/guisdap/anal/
+# COPY g9/exps/* /opt/guisdap/exps/
+# COPY g9/init/* /opt/guisdap/init/
+
+# to test changes in remtg
+COPY ./remtg/lib/* /opt/remtg/lib/
+
+# scripts to read in hdf5 into matlab and python from Lisa
+RUN mkdir /opt/guisdap/user_scripts
+COPY /pkgs/user_scripts/* /opt/guisdap/user_scripts
+
+# octave install
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    octave octave-doc gnuplot-qt\
+        && apt-get clean \
+        && apt-get -y autoremove \
+        && rm -rf /var/lib/apt/lists/*
+
+# add remtg to octave path
+COPY pkgs/addto_octaverc /usr/share/octave/site/m/startup
+RUN cd /usr/share/octave/site/m/startup && cat addto_octaverc >> octaverc \
+    && rm addto_octaverc
+
+# Switch back to notebook user
+USER $NB_USER
+WORKDIR /home/${NB_USER}
+
+# RUN mamba install -c conda-forge --yes xeus-octave
+
+
+# Install integration
+RUN python -m pip install -U pip
+# RUN python -m pip install aqtinstall
 RUN python -m pip install octave_kernel
 RUN python -m pip install matplotlib numpy pandas
 RUN python -m pip install madrigalWeb
@@ -157,12 +291,7 @@ RUN python -m pip install jupyterlab_widgets "ipywidgets>=7,<8"
 RUN python -m pip install plotly
 
 # what is this variable needed for?
-ARG OCTAVE_EXECUTABLE=/usr/bin/octave 
-
-# Make JupyterLab the default environment
-ENV JUPYTER_ENABLE_LAB="yes"
-
-ENV MW_CONTEXT_TAGS=${MW_CONTEXT_TAGS}
+ARG OCTAVE_EXECUTABLE=/usr/bin/octave
 
 #####################################################################################
 # environemental variable Hub is used in guisdap to determine that 
@@ -175,14 +304,6 @@ ENV MATLABPATH="/home/$NB_USER/gup/mygup:/opt/guisdap/anal:/opt/guisdap/init:/ho
 #####################################################################################
 ## other attempts and experiments
 
-##RUN echo "$NB_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/$NB_USER \
-##    && chmod 0440 /etc/sudoers.d/$NB_USER
-
-
 # To setup folders for guisdap and backup container homefolder for comparisement on run
 # USER root
-COPY ./startup.sh /usr/local/bin/start-notebook.d
-# RUN cp -r /home/jovyan /tmp/jovyan && chmod 777 /tmp/jovyan
-
-# USER $NB_USER
-#####################################################################################
+COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d

@@ -1,8 +1,8 @@
 #! /usr/bin/bash
 
 ## additional scripts to read eiscat hdf5 files data outside of guisdap to matlab and python
-if ! [ -d "./Etools" ]; then \
-    cp -r /opt/guisdap/Etools .
+if ! [ -d "./user_scripts" ]; then \
+    cp -r /opt/guisdap/user_scripts .
 fi
 
 ## if not existing create folders necessary for guisdap
