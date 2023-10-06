@@ -277,13 +277,11 @@ RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
 # RUN for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
 #     rm -rf /tmp/pkg*
 
-# # to test updated scripts in anal
+# to test updated scripts in anal
 # COPY g9/anal/* /opt/guisdap/anal/
-# # COPY g9/exps/* /opt/guisdap/exps/
-# # COPY g9/init/* /opt/guisdap/init/
 
 # # to test changes in remtg
-# COPY ./remtg/lib/* /opt/remtg/lib/
+# COPY ./remtg/datasel.m /opt/remtg/lib/
 
 # scripts to read in hdf5 into matlab and python from Lisa
 RUN mkdir /opt/guisdap/user_scripts
@@ -303,7 +301,7 @@ COPY pkgs/addto_octaverc /usr/share/octave/site/m/startup
 RUN cd /usr/share/octave/site/m/startup && cat addto_octaverc >> octaverc \
     && rm addto_octaverc
 
-# turn off automatick update check in matlab
+# turn off automatic update check in matlab
 COPY pkgs/addto_matlabrc /opt/matlab/toolbox/local
 RUN cd /opt/matlab/toolbox/local && cat addto_matlabrc >> matlabrc.m \
     && rm addto_matlabrc

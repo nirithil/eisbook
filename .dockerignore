@@ -3,7 +3,12 @@ README.md
 exclude/*
 notes.txt
 g9/.git/*
-remtg/*
-g9/*
+remtg/.git/*
+remtg/private
+remtg/README.Docker
+remtg/movieg
+remtg/rtg_gen.sh
+remtg/rtggo
+remtg/Dockerfile
 notes.txt
 .gitignore

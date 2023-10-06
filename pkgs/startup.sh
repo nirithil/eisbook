@@ -13,10 +13,10 @@ do
     fi
 done
 
-# # if we are on eiscat server and licence is used link shared folder
-# if [ "$MLM_LICENSE_FILE" = "27000@hqserv" ]; then \
-#     ln -s /shared_data /home/$NB_USER; \
-# fi
+# if we are on eiscat server and licence is used link shared folder
+if [ "$MLM_LICENSE_FILE" = "27000@hqserv" ]; then \
+    ln -s /shared_data /home/$NB_USER; \
+fi
 
 ## do we need to check somehow changes in the home folder? (what if we add something to the home folder?)
 # diff -r(?)
