@@ -1,5 +1,6 @@
 ######################################################################################
 # Select base Jupyter image (from the jupyter docker-stacks project)
+# pushed to server 2023/10/07 before optimalisation experiments
 FROM jupyter/base-notebook:latest as eisbase
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -150,7 +151,7 @@ RUN touch ${HOME}/.Xauthority
 
 WORKDIR /home/${NB_USER}
 # Install integration
-RUN python -m pip install jupyter-remote-desktop-proxy
+RUN python -m pip install jupyter-remote-desktop-proxy jupyter-server-proxy
 
 #######################################################################################
 FROM eisnovnc as eismatlab
@@ -295,6 +296,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         && apt-get clean \
         && apt-get -y autoremove \
         && rm -rf /var/lib/apt/lists/*
+        
+# 
+ARG OCTAVE_EXECUTABLE=/usr/bin/octave
 
 # add remtg to octave path and setup proper graphics_toolkit based on app
 COPY pkgs/addto_octaverc /usr/share/octave/site/m/startup
@@ -309,20 +313,19 @@ RUN cd /opt/matlab/toolbox/local && cat addto_matlabrc >> matlabrc.m \
 # To setup folders for guisdap and backup container homefolder for comparisement on run
 COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d/
 
+# setup shared folder for eiscat server purposes...
+RUN mkdir /shared_data && fix-permissions "/shared_data"
+
 # Switch back to notebook user
 USER $NB_USER
 WORKDIR /home/${NB_USER}
 
 RUN python -m pip install -U pip
 # Install integration
-RUN python -m pip install octave_kernel
-RUN python -m pip install matplotlib numpy pandas
-RUN python -m pip install madrigalWeb
-RUN python -m pip install jupyterlab_widgets "ipywidgets>=7,<8"
-RUN python -m pip install plotly
-
-# what is this variable needed for?
-ARG OCTAVE_EXECUTABLE=/usr/bin/octave
+# Install integration
+RUN python -m pip install octave_kernel matplotlib numpy pandas \
+    madrigalWeb jupyterlab_widgets "ipywidgets>=7,<8" plotly \
+    jupyter-remote-desktop-proxy jupyter-server-proxy jupyter-matlab-proxy
 
 #####################################################################################
 # environemental variable Hub is used in guisdap to determine that 

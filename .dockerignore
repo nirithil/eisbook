@@ -2,13 +2,5 @@ README.md
 .git
 exclude/*
 notes.txt
-g9/.git/*
-remtg/.git/*
-remtg/private
-remtg/README.Docker
-remtg/movieg
-remtg/rtg_gen.sh
-remtg/rtggo
-remtg/Dockerfile
-notes.txt
+Dockerfile.pushedtoserver
 .gitignore
