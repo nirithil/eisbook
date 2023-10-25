@@ -34,85 +34,41 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg xvfb \
     firefox xubuntu-icon-theme xscreensaver \
     websockify \
+    # octave install
+    octave octave-doc gnuplot-qt \
         && apt-get remove --yes gnome-screensaver \
         && apt-get clean \
         && apt-get -y autoremove \
         && rm -rf /var/lib/apt/lists/*
 
+# octave executable 
+ARG OCTAVE_EXECUTABLE=/usr/bin/octave
+
+# Install guisdap part 1  
+# Install pithia tools online (devided in few layers originaly 7.5GB layer)
+RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
+    unzip pkg.zip && \
+    for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
+    rm -rf /tmp/pkg*
+
+# # Install pithia tools from local storage
+# COPY ./pkg/* /tmp/pkg/
+# RUN for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
+#     rm -rf /tmp/pkg*
+
+# to test updated scripts in anal
+# COPY g9/anal/* /opt/guisdap/anal/
+
+# # to test changes in remtg
+# COPY ./remtg/datasel.m /opt/remtg/lib/
+
 # Switch back to jovyan to avoid accidental container runs as root
 USER ${NB_UID}
 
-# # Add R mimetype option to specify how the plot returns from R to the browser
-COPY --chown=${NB_UID}:${NB_GID} /pkgs/Rprofile.site /opt/conda/lib/R/etc/
-
-# Add setup scripts that may be used by downstream images or inherited images 
-COPY pkgs/setup-scripts/ /opt/setup-scripts/
-######################################################################################
-# install julia # adjusted from jupyter docker-stack julia-notebook scripts r
-FROM eisbase as eisjulia
-
-USER root
-
-# Julia dependencies
-# install Julia packages in /opt/julia instead of ${HOME}
-ENV JULIA_DEPOT_PATH=/opt/julia \
-    JULIA_PKGDIR=/opt/julia
-
-# Setup Julia
-RUN /opt/setup-scripts/setup-julia.bash
-
-USER ${NB_UID}
-
-# Setup IJulia kernel & other packages
-RUN /opt/setup-scripts/setup-julia-packages.bash
-######################################################################################
-# install R # taken from jupyter-docker stacks r-notebook
-FROM eisjulia as eisr
-
-USER root
-
-# R pre-requisites
-RUN apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    fonts-dejavu \
-    unixodbc \
-    unixodbc-dev \
-    r-cran-rodbc \
-    gfortran \
-    gcc && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-USER ${NB_UID}
-
-# R packages including IRKernel which gets installed globally.
-# r-e1071: dependency of the caret R package
-RUN mamba install --yes \
-    'r-base' \
-    'r-caret' \
-    'r-crayon' \
-    'r-devtools' \
-    'r-e1071' \
-    'r-forecast' \
-    'r-hexbin' \
-    'r-htmltools' \
-    'r-htmlwidgets' \
-    'r-irkernel' \
-    'r-nycflights13' \
-    'r-randomforest' \
-    'r-rcurl' \
-    'r-rmarkdown' \
-    'r-rodbc' \
-    'r-rsqlite' \
-    'r-shiny' \
-    'r-tidymodels' \
-    'r-tidyverse' \
-    'unixodbc' && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
-
 #######################################################################################
-FROM eisr as eisnovnc
+# Install  the desktop feature, tiger/novnc stuff
+
+FROM eisbase as eisnovnc
 
 USER root
 
@@ -137,23 +93,25 @@ RUN mkdir -p ${NOVNC_PATH} \
 # This allows users to easily wake the desktop when it goes to sleep.
 RUN passwd $NB_USER -d
 
-# Change user to jovyan from root as we do not want any changes to be made as root in the container
-USER $NB_USER
-
 # Get websockify
 RUN conda install -y websockify=0.11.0
 
 # Set environment variable for python package jupyter-matlab-vnc-proxy
 ENV NOVNC_PATH=${NOVNC_PATH}
 
+# Change user to jovyan from root as we do not want any changes to be made as root in the container
+USER $NB_USER
+WORKDIR /home/${NB_USER}
+
 # Fixes occasional failure to start VNC desktop, which requires a reloading of the webpage to fix.
 RUN touch ${HOME}/.Xauthority
 
-WORKDIR /home/${NB_USER}
 # Install integration
 RUN python -m pip install jupyter-remote-desktop-proxy jupyter-server-proxy
 
 #######################################################################################
+# Install matlab and matlab integration for jupyter
+
 FROM eisnovnc as eismatlab
 # Specify release of MATLAB to build. (use lowercase, default is r2023a) Taken from mathworks-ref-arch
 # /matlab-integration-for-jupyter matlab/matlabVNC and adjusted
@@ -167,13 +125,12 @@ ARG MW_CONTEXT_TAGS=MATLAB_PROXY:JUPYTER:MPM:V1
 
 USER root
 
-## Installing Dependencies for Ubuntu 20.04
+## Installing Dependencies for Ubuntu 22.04
 # For MATLAB : Get base-dependencies.txt from matlab-deps repository on GitHub
 # For mpm : wget, unzip, ca-certificates
 # For MATLAB Integration for Jupyter (VNC): xvfb dbus-x11 firefox xfce4 xfce4-panel xfce4-session xfce4-settings xorg xubuntu-icon-theme curl xscreensaver
 
-# List of MATLAB Dependencies for Ubuntu 20.04 and specified MATLAB_RELEASE
-# ARG MATLAB_DEPS_REQUIREMENTS_FILE="https://raw.githubusercontent.com/mathworks-ref-arch/container-images/main/matlab-deps/${MATLAB_RELEASE}/ubuntu20.04/base-dependencies.txt"
+# List of MATLAB Dependencies for Ubuntu 22.04 and specified MATLAB_RELEASE
 ARG MATLAB_DEPS_REQUIREMENTS="ca-certificates libasound2 libc6 libcairo-gobject2 libcairo2 libcap2 \
  libcrypt1 libcups2 libdrm2 libgbm1 libgdk-pixbuf-2.0-0 libgl1 libglib2.0-0 libgstreamer-plugins-base1.0-0 \
  libgstreamer1.0-0 libgtk-3-0 libice6 libnspr4 libnss3 libodbc2 libodbcinst2 libpam0g libpango-1.0-0 \
@@ -181,29 +138,6 @@ ARG MATLAB_DEPS_REQUIREMENTS="ca-certificates libasound2 libc6 libcairo-gobject2
  libxdamage1 libxfixes3 libxft2 libxinerama1 libxrandr2 libxt6 libxtst6 libxxf86vm1 locales locales-all \
  make net-tools procps sudo unzip zlib1g"
 ARG MATLAB_DEPS_REQUIREMENTS_FILE_NAME="matlab-deps-${MATLAB_RELEASE}-base-dependencies.txt"
-
-# Install dependencies
-# RUN wget ${MATLAB_DEPS_REQUIREMENTS_FILE} -O ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} \
-#     && export DEBIAN_FRONTEND=noninteractive && apt-get update \
-#     && xargs -a ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} -r apt-get install --no-install-recommends -y \
-#     dbus-x11 \
-#     firefox \
-#     xfce4 \
-#     xfce4-panel \
-#     xfce4-session \
-#     xfce4-settings \
-#     xorg \
-#     xubuntu-icon-theme \
-#     curl \
-#     xscreensaver \
-#     wget \
-#     unzip \
-#     ca-certificates \
-#     xvfb \
-#     && apt-get remove -y gnome-screensaver  \
-#     && apt-get clean \
-#     && apt-get -y autoremove \
-#     && rm -rf /var/lib/apt/lists/* ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME}
 
 RUN echo ${MATLAB_DEPS_REQUIREMENTS} > ${MATLAB_DEPS_REQUIREMENTS_FILE_NAME} \
     && apt-get update \
@@ -255,50 +189,110 @@ USER $NB_USER
 WORKDIR /home/${NB_USER}
 
 # Install integration
-RUN python -m pip install jupyter-matlab-proxy
+RUN python -m pip install -U pip && \
+    python -m pip install octave_kernel matplotlib numpy pandas \
+    madrigalWeb jupyterlab_widgets "ipywidgets>=7,<8" plotly \
+    jupyter-remote-desktop-proxy jupyter-server-proxy jupyter-matlab-proxy
 
 # Make JupyterLab the default environment
 ENV JUPYTER_ENABLE_LAB="yes"
 
 ENV MW_CONTEXT_TAGS=${MW_CONTEXT_TAGS}
-#######################################################################################
-## Install octave guisdap remtg and other EISCAT things
-FROM eismatlab as eisbook
+
+######################################################################################
+# install julia # adjusted from jupyter docker-stack julia-notebook scripts r
+FROM eismatlab as eisjulia
+
+USER ${NB_UID}
+
+# Add setup scripts that may be used by downstream images or inherited images 
+COPY pkgs/setup-scripts/ /opt/setup-scripts/
 
 USER root
 
-# Install pithia tools online
-RUN cd /tmp && curl -qOJ https://cloud.eiscat.se/s/XGm8jnePJWCwP3A/download && \
-    unzip pkg.zip && \
-    for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
-    rm -rf /tmp/pkg*
+# Julia dependencies
+# install Julia packages in /opt/julia instead of ${HOME}
+ENV JULIA_DEPOT_PATH=/opt/julia \
+    JULIA_PKGDIR=/opt/julia
 
-# # Install pithia tools from local storage
-# COPY ./pkg/* /tmp/pkg/
-# RUN for i in /tmp/pkg/*deb; do dpkg -i $i && rm $i; done && \
-#     rm -rf /tmp/pkg*
+# Setup Julia
+RUN /opt/setup-scripts/setup-julia.bash
 
-# to test updated scripts in anal
-# COPY g9/anal/* /opt/guisdap/anal/
+USER ${NB_UID}
 
-# # to test changes in remtg
-# COPY ./remtg/datasel.m /opt/remtg/lib/
+# Setup IJulia kernel & other packages
+RUN /opt/setup-scripts/setup-julia-packages.bash
+######################################################################################
+# install R # taken from jupyter-docker stacks r-notebook
+FROM eisjulia as eisr
+
+USER ${NB_UID}
+# Add R mimetype option to specify how the plot returns from R to the browser
+COPY --chown=${NB_UID}:${NB_GID} /pkgs/Rprofile.site /opt/conda/lib/R/etc/
+
+# Add setup scripts that may be used by downstream images or inherited images 
+COPY pkgs/R-scripts/ISinstall.r /opt/setup-scripts/
+COPY pkgs/R-scripts/ISgeometry_0.5.3_AT.tar.gz /opt/setup-scripts/
+
+USER root
+
+# R pre-requisites
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    fonts-dejavu \
+    unixodbc \
+    unixodbc-dev \
+    r-cran-rodbc \
+    gfortran \
+    gcc && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# R packages including IRKernel which gets installed globally.
+# r-e1071: dependency of the caret R package
+
+# RUN mamba install -yn base -c conda-forge r-base r-tinytex perl
+RUN mamba install --yes \
+    'r-base' \
+    'r-caret' \
+    'r-crayon' \
+    'r-devtools' \
+    'r-e1071' \
+    'r-forecast' \
+    'r-hexbin' \
+    'r-htmltools' \
+    'r-htmlwidgets' \
+    'r-irkernel' \
+    'r-nycflights13' \
+    'r-randomforest' \
+    'r-rcurl' \
+    'r-rmarkdown' \
+    'r-rodbc' \
+    'r-rsqlite' \
+    'r-shiny' \
+    'r-tidymodels' \
+    'r-tidyverse' \
+    'r-maps' \
+    'r-mapdata' \
+    'unixodbc' && \
+    mamba clean --all -f -y
+
+RUN R CMD BATCH /opt/setup-scripts/ISinstall.r && rm ISinstall.r.Rout 
+
+USER root
+RUN fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+USER ${NB_UID}
+#######################################################################################
+# Install guisdap part 2 + final settings in the notebook to connect everything
+FROM eisr as eisbook
+
+USER root
 
 # scripts to read in hdf5 into matlab and python from Lisa
 RUN mkdir /opt/guisdap/user_scripts
-COPY /pkgs/user_scripts/* /opt/guisdap/user_scripts
-
-# octave install
-RUN export DEBIAN_FRONTEND=noninteractive && \
-    apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    octave octave-doc gnuplot-qt\
-        && apt-get clean \
-        && apt-get -y autoremove \
-        && rm -rf /var/lib/apt/lists/*
-        
-# 
-ARG OCTAVE_EXECUTABLE=/usr/bin/octave
+COPY /pkgs/user_scripts /opt/guisdap/user_scripts
 
 # add remtg to octave path and setup proper graphics_toolkit based on app
 COPY pkgs/addto_octaverc /usr/share/octave/site/m/startup
@@ -306,9 +300,11 @@ RUN cd /usr/share/octave/site/m/startup && cat addto_octaverc >> octaverc \
     && rm addto_octaverc
 
 # turn off automatic update check in matlab
+COPY pkgs/guisdap.m /opt/matlab/toolbox/local/
 COPY pkgs/addto_matlabrc /opt/matlab/toolbox/local
 RUN cd /opt/matlab/toolbox/local && cat addto_matlabrc >> matlabrc.m \
     && rm addto_matlabrc
+# COPY pkgs/gupquit.m /opt/guisdap/anal/
 
 # To setup folders for guisdap and backup container homefolder for comparisement on run
 COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d/
@@ -316,25 +312,18 @@ COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d/
 # setup shared folder for eiscat server purposes...
 RUN mkdir /shared_data && fix-permissions "/shared_data"
 
+# environemental variable Hub is used in guisdap to determine that 
+# it is running in notebook to prevent crashes
+ENV EISCATSITE="Hub"
+
+# path for guisdap to be added at start to MATLAB, this causes guisdap automatically load together with the matlab environment... why?
+ENV MATLABPATH="/home/$NB_USER/gup/mygup:/home/$NB_USER/user_scripts/:/opt/remtg/lib"
+
+## other attempts and experiments
+
 # Switch back to notebook user
 USER $NB_USER
 WORKDIR /home/${NB_USER}
 
-RUN python -m pip install -U pip
-# Install integration
-# Install integration
-RUN python -m pip install octave_kernel matplotlib numpy pandas \
-    madrigalWeb jupyterlab_widgets "ipywidgets>=7,<8" plotly \
-    jupyter-remote-desktop-proxy jupyter-server-proxy jupyter-matlab-proxy
 
-#####################################################################################
-# environemental variable Hub is used in guisdap to determine that 
-# it is running in notebook to prevent crashes
-ENV EISCATSITE="Hub"
-#####################################################################################
-# path for guisdap to be added at start to MATLAB, this causes guisdap automatically load together with the matlab environment... why?
-ENV MATLABPATH="/home/$NB_USER/gup/mygup:/opt/guisdap/anal:/opt/guisdap/init:/home/$NB_USER/user_scripts/:/opt/remtg/lib"
-
-#####################################################################################
-## other attempts and experiments
 

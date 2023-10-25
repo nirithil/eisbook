@@ -22,5 +22,7 @@ if [ "$MLM_LICENSE_FILE" = "27000@hqserv" ]; then \
     fi 
 fi
 
-## do we need to check somehow changes in the home folder? (what if we add something to the home folder?)
-# diff -r(?)
+if ! [ -f .wgetrc ]; then \
+    echo "content-disposition = on" >> /home/${NB_USER}/.wgetrc
+fi
+

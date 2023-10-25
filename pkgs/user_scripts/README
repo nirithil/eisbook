@@ -1,0 +1,6 @@
+The installed package ISgeometry package version is the AT version that makes the output plots significantly easier to handle.
+
+The R scripts will run without failure in the Desktop environment, but they will fail in the R notebook, R console and Terminal 
+because of the selection of graphical device in the scripts. The ISgeometry package needs to be adjusted for the different environment yet.
+
+The Python and matlab scripts are courtesy of Lisa Baddley and her students.
