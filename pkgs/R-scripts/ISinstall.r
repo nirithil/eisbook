@@ -1,1 +1,0 @@
-install.packages(pkgs='/opt/setup-scripts/ISgeometry_0.5.3_AT.tar.gz',repos=NULL,type='source')

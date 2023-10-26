@@ -1,3 +1,5 @@
 exclude
 pkg
 notes.txt
+pkgs/R-scripts
+pkgs/setup-scripts
