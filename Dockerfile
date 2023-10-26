@@ -34,6 +34,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg xvfb \
     firefox xubuntu-icon-theme xscreensaver \
     websockify \
+    rsync \
     # octave install
     octave octave-doc gnuplot-qt \
         && apt-get remove --yes gnome-screensaver \
@@ -304,7 +305,7 @@ COPY pkgs/guisdap.m /opt/matlab/toolbox/local/
 COPY pkgs/addto_matlabrc /opt/matlab/toolbox/local
 RUN cd /opt/matlab/toolbox/local && cat addto_matlabrc >> matlabrc.m \
     && rm addto_matlabrc
-# COPY pkgs/gupquit.m /opt/guisdap/anal/
+COPY pkgs/gupquit.m /opt/guisdap/anal/
 
 # To setup folders for guisdap and backup container homefolder for comparisement on run
 COPY /pkgs/startup.sh /usr/local/bin/start-notebook.d/
