@@ -1,0 +1,22 @@
+You will need to install the R packages "maps" and "mapdata", and the 
+ISgeometry package. There are many alternative ways to do the 
+installation, but the following should work independently of your OS.
+
+0. If you are a Windows user, you will need to install also the 
+Rtools-package from http://ftp.sunet.se/pub/lang/CRAN/
+
+1. In R command line, give the following command to install the packages 
+"maps" and "mapdata":
+
+> install.packages(pkgs=c('maps','mapdata'),dependencies=TRUE)
+
+
+2. Then install the ISegoemetry packge:
+
+> install.packages(pkgs='ISgeometry4CH.tgz',repos=NULL,type='source')
+
+3. You will then need to load the necesary packages with
+
+> require(ISgeometry)
+
+which will automatically load all the pakages it depends on as well.
